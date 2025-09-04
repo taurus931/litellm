@@ -1,0 +1,48 @@
+# Development Dockerfile for LiteLLM - chạy từ source code
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    python3-dev \
+    libssl-dev \
+    pkg-config \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
+
+# Fix JWT dependency conflicts
+RUN pip uninstall jwt -y || true && \
+    pip uninstall PyJWT -y || true && \
+    pip install PyJWT==2.9.0
+
+# Copy source code
+COPY . .
+
+# Build Admin UI (skip for development - use pre-built UI)
+# RUN chmod +x docker/build_admin_ui.sh && ./docker/build_admin_ui.sh
+
+# Install LiteLLM in development mode (editable install)
+RUN pip install -e .
+
+# Generate prisma client
+RUN prisma generate
+
+# Set permissions
+RUN chmod +x docker/entrypoint.sh docker/prod_entrypoint.sh
+
+# Expose port
+EXPOSE 4000
+
+# Default command (will be overridden by docker-compose)
+CMD ["python3", "-m", "litellm.proxy.proxy_cli", "--help"]

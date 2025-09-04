@@ -1,0 +1,153 @@
+version: "3.9"
+
+services:
+  litellm:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: litellm_server_dev
+    restart: always
+    # Bind to localhost for security
+    ports:
+      - "127.0.0.1:4000:4000"
+    environment:
+      - LITELLM_CONFIG=/app/config.yaml
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/litellm
+      # Redis settings
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      # Auth settings
+      - ADMIN_KEY=${ADMIN_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - UI_USERNAME=${UI_USERNAME:-admin}
+      - UI_PASSWORD=${UI_PASSWORD:-sk-1234}
+      - LITELLM_SALT_KEY=${LITELLM_SALT_KEY}
+      # Development settings
+      - LITELLM_MODE=DEVELOPMENT
+      - USE_PRISMA_MIGRATE=true
+      - STORE_MODEL_IN_DB=True
+      # UI settings
+      - DISABLE_ADMIN_UI=False
+      # Debug settings
+      - DEBUG=true
+      - DETAILED_DEBUG=true
+      - LITELLM_LOG=DEBUG
+    volumes:
+      # Mount source code for live development
+      - ./litellm:/app/litellm
+      - ./proxy_server_config.yaml:/app/proxy_server_config.yaml
+      # Mount logs for debugging
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+    # Override command for development
+    command: ["python3", "-m", "litellm.proxy.proxy_cli", "--config", "/app/proxy_server_config.yaml", "--host", "0.0.0.0", "--port", "4000", "--debug", "--detailed_debug"]
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  postgres:
+    image: postgres:17
+    container_name: litellm_postgres_dev
+    restart: always
+    # Bind to localhost for security
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: litellm
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+    # Health check
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    container_name: litellm_redis_dev
+    restart: always
+    # Bind to localhost for security
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data_dev:/data
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+    # Health check
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: FastAPI OTP service (if you need it)
+  fastapi_otp:
+    build: ./otp_service
+    container_name: fastapi_otp_dev
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      litellm:
+        condition: service_started
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/litellm
+      LITELLM_URL: http://litellm:4000
+      ADMIN_KEY: ${ADMIN_KEY}
+    # Bind to localhost
+    ports:
+      - "127.0.0.1:8000:8000"
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    # Health check
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  postgres_data_dev:
+    driver: local
+  redis_data_dev:
+    driver: local
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
