@@ -33,7 +33,7 @@ services:
       # Debug settings
       - DEBUG=true
       - DETAILED_DEBUG=true
-      - LITELLM_LOG=DEBUG
+      - LITELLM_LOG=INFO
     volumes:
       # Mount source code for live development
       - ./litellm:/app/litellm
@@ -44,7 +44,7 @@ services:
       - postgres
       - redis
     # Override command for development
-    command: ["python3", "-m", "litellm.proxy.proxy_cli", "--config", "/app/proxy_server_config.yaml", "--host", "0.0.0.0", "--port", "4000", "--debug", "--detailed_debug"]
+    command: ["python3", "-m", "litellm.proxy.proxy_cli", "--config", "/app/proxy_server_config.yaml", "--host", "0.0.0.0", "--port", "4000"]
     # Resource limits
     deploy:
       resources:
